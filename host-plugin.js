@@ -23,7 +23,7 @@ export async function apply(ctx, config = {}) {
     const base = { codexCommand: nonBlank(config.codexCommand) ?? "" };
     let source = () => base;
     const settings = ctx.get("settings");
-    settings?.installSection(ctx, CODEX_SETTINGS_NAMESPACE, CODEX_SETTINGS_SCHEMA, base, {
+    if (typeof settings?.installSection === "function") settings.installSection(ctx, CODEX_SETTINGS_NAMESPACE, CODEX_SETTINGS_SCHEMA, base, {
       setSource(current) { source = current; },
       onChange() {
         if (controller.started) {
@@ -33,7 +33,19 @@ export async function apply(ctx, config = {}) {
         }
       },
     });
-    await installManagedPreset(fileURLToPath(new URL("../presets/relay-codex", import.meta.url)), "relay-codex");
+    const presets = ctx.get("agentPresets");
+    if (typeof presets?.register === "function") {
+      const unregister = await presets.register({
+        id: "relay-codex",
+        name: "Codex",
+        description: "Run and resume a Codex thread in DSH.",
+        order: 2,
+        plugins: [],
+      });
+      ctx.effect(() => unregister, "relay.codex.preset");
+    } else {
+      await installManagedPreset(fileURLToPath(new URL("../presets/relay-codex", import.meta.url)), "relay-codex");
+    }
     await host.activate([
       createCodexExecutionPlugin({
         ...config.codex, command: source().codexCommand, controller, args: config.codexArgs,

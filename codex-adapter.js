@@ -160,7 +160,7 @@ export class CodexDshAdapter extends LlmAdapter {
     return structuredClone(next);
   }
 
-  async ensureThread(sessionId, dynamicTools = this.dynamicTools, inheritedProvenance = null) {
+  async ensureThread(sessionId, dynamicTools = this.dynamicTools, inheritedProvenance = null, requestInstructions = undefined) {
     const key = String(sessionId);
     const pending = this.pendingThreads.get(key);
     if (pending) return pending;
@@ -170,7 +170,7 @@ export class CodexDshAdapter extends LlmAdapter {
     }
     const operation = (!this.links.has(key) && inheritedProvenance?.threadId
       ? this.forkInheritedThread(key, dynamicTools, inheritedProvenance)
-      : this.createOrResumeThread(key, dynamicTools)).finally(() => {
+      : this.createOrResumeThread(key, dynamicTools, requestInstructions)).finally(() => {
       this.pendingThreads.delete(key);
     });
     this.pendingThreads.set(key, operation);
@@ -239,7 +239,7 @@ export class CodexDshAdapter extends LlmAdapter {
     return rebindRequiredError(status, cause);
   }
 
-  async createOrResumeThread(sessionId, dynamicTools) {
+  async createOrResumeThread(sessionId, dynamicTools, requestInstructions) {
     await this.ready;
     const settings = { ...this.configuration(sessionId), dynamicTools };
     const signature = JSON.stringify(dynamicTools);
@@ -260,9 +260,11 @@ export class CodexDshAdapter extends LlmAdapter {
         throw persistedResumeError(sessionId, linked, error, this);
       }
     }
+    const developerInstructions = settings.developerInstructions
+      ?? [this.executionGuidance, requestInstructions].filter(Boolean).join("\n\n");
     const created = await this.runtime.createSession({
       ...settings,
-      ...(this.executionGuidance ? { developerInstructions: settings.developerInstructions ?? this.executionGuidance } : {}),
+      ...(developerInstructions ? { developerInstructions } : {}),
     });
     this.links.set(sessionId, created.id);
     this.bumpBindingEpoch(sessionId);
@@ -593,6 +595,7 @@ export class CodexDshAdapter extends LlmAdapter {
       sessionId,
       dshToolSurface.dynamicTools,
       inheritedCodexProvenance(options.messages),
+      this.executionMode === "native" ? undefined : requestSystemPrompt(options),
     );
     this.dshToolNames.set(sessionId, dshToolSurface.aliasToOriginal);
     const queue = new ActivityQueue(options.signal);
@@ -1392,6 +1395,15 @@ function humanize(value) {
 
 function reasoningEffortName(value) {
   return String(value) === "xhigh" ? "Extra high" : humanize(value);
+}
+
+function requestSystemPrompt(options) {
+  const system = options.messages?.find((message) => message?.role === "system");
+  const text = system?.content
+    ?.filter((block) => block.type === "text")
+    .map((block) => block.text)
+    .join("\n") ?? options.system;
+  return typeof text === "string" && text.trim() ? text.trim() : undefined;
 }
 
 async function latestUserInput(messages, attachments, signal) {
