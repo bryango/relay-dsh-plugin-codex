@@ -1,12 +1,7 @@
 // basic-host.js
 import { on } from "node:events";
-import { tmpdir } from "node:os";
-import { LlmAdapter } from "@deepseek-ai/dsh-llm";
-
-// app-server-client.mjs
-import { spawn } from "node:child_process";
-import { EventEmitter } from "node:events";
-import readline from "node:readline";
+import { homedir as homedir2, tmpdir } from "node:os";
+import { delimiter as delimiter2, isAbsolute as isAbsolute2, join as join2 } from "node:path";
 
 // codex-command.mjs
 import { accessSync, constants, realpathSync, statSync } from "node:fs";
@@ -233,7 +228,13 @@ function nonBlank(value) {
   return typeof value === "string" && value.trim() ? value.trim() : void 0;
 }
 
+// basic-host.js
+import { LlmAdapter } from "@deepseek-ai/dsh-llm";
+
 // app-server-client.mjs
+import { spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
+import readline from "node:readline";
 var NATIVE_CODEX_CLIENT_INFO = {
   name: "relay_codex",
   title: "DSH Codex",
@@ -540,6 +541,24 @@ function assertUsableModelList(result) {
 }
 
 // basic-host.js
+function systemCodex() {
+  const override = process.env.RELAY_CODEX_COMMAND?.trim();
+  if (override && override !== "auto") {
+    try {
+      return validateExecutablePath(override);
+    } catch {
+      throw new Error("Codex executable override is invalid.");
+    }
+  }
+  const dirs = [...(process.env.PATH ?? "").split(delimiter2), join2(homedir2(), "bin"), join2(homedir2(), ".local", "bin"), "/opt/homebrew/bin", "/usr/local/bin"];
+  for (const dir of dirs.filter(isAbsolute2)) {
+    try {
+      return validateExecutablePath(join2(dir, process.platform === "win32" ? "codex.exe" : "codex"));
+    } catch {
+    }
+  }
+  throw new Error("System Codex not found; set RELAY_CODEX_COMMAND to an absolute executable path.");
+}
 var name = "relay-dsh-plugin-codex-basic";
 var inject = ["llm", "agents"];
 var provider = "relay-codex";
@@ -576,7 +595,7 @@ var BasicCodex = class extends LlmAdapter {
     const { history, input } = conversation(options.messages);
     const signal = AbortSignal.any([this.signal, ...options.signal ? [options.signal] : [], AbortSignal.timeout(3e5)]);
     signal.throwIfAborted();
-    const client = new CodexAppServerClient({ args });
+    const client = new CodexAppServerClient({ args, command: systemCodex() });
     const stop = () => {
       void client.close();
     };
@@ -606,7 +625,7 @@ var BasicCodex = class extends LlmAdapter {
           yield { type: "text-delta", index: 0, text: params.delta };
         }
         if (method === "turn/completed" && params.turn.id === turn.id) {
-          if (params.turn.status !== "completed") throw new Error(params.turn.error?.message ?? `Codex turn ${params.turn.status}`);
+          if (params.turn.status !== "completed") throw new Error("Codex turn did not complete.");
           if (!text) throw new Error("Codex returned no text.");
           yield { type: "block-end", index: 0, block: { type: "text", text } };
           yield { type: "finish", reason: { kind: "stop" } };
@@ -614,6 +633,11 @@ var BasicCodex = class extends LlmAdapter {
         }
       }
       throw new Error("Codex App Server closed before the turn completed.");
+    } catch (error) {
+      if (signal.aborted) throw new Error("Codex request cancelled or timed out.");
+      const message = String(error?.message ?? "");
+      const category = /unauthori[sz]ed|authentication|not logged in|401/i.test(message) ? "authentication" : /quota|rate.limit|429/i.test(message) ? "quota or rate limit" : /permission|denied|EACCES|EPERM/i.test(message) ? "permission denied" : /timeout|timed out/i.test(message) ? "timeout" : /exited|closed|stopped/i.test(message) ? "server exited" : "request failed";
+      throw new Error(`Codex App Server: ${category}.`);
     } finally {
       signal.removeEventListener("abort", stop);
       await events.return();

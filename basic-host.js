@@ -1,5 +1,19 @@
 import { on } from "node:events";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
+import { delimiter, isAbsolute, join } from "node:path";
+import { validateExecutablePath } from "./codex-command.mjs";
+
+function systemCodex() {
+  const override = process.env.RELAY_CODEX_COMMAND?.trim();
+  if (override && override !== "auto") {
+    try { return validateExecutablePath(override); } catch { throw new Error("Codex executable override is invalid."); }
+  }
+  const dirs = [...(process.env.PATH ?? "").split(delimiter), join(homedir(), "bin"), join(homedir(), ".local", "bin"), "/opt/homebrew/bin", "/usr/local/bin"];
+  for (const dir of dirs.filter(isAbsolute)) {
+    try { return validateExecutablePath(join(dir, process.platform === "win32" ? "codex.exe" : "codex")); } catch { /* try the next installation */ }
+  }
+  throw new Error("System Codex not found; set RELAY_CODEX_COMMAND to an absolute executable path.");
+}
 import { LlmAdapter } from "@deepseek-ai/dsh-llm";
 import { CodexAppServerClient } from "./app-server-client.mjs";
 
@@ -33,7 +47,7 @@ class BasicCodex extends LlmAdapter {
     const { history, input } = conversation(options.messages);
     const signal = AbortSignal.any([this.signal, ...(options.signal ? [options.signal] : []), AbortSignal.timeout(300_000)]);
     signal.throwIfAborted();
-    const client = new CodexAppServerClient({ args });
+    const client = new CodexAppServerClient({ args, command: systemCodex() });
     const stop = () => { void client.close(); };
     signal.addEventListener("abort", stop, { once: true });
     client.on("serverRequest", ({ id }) => client.respondError(id, -32601, "Interactive requests are disabled in text-only mode"));
@@ -55,7 +69,7 @@ class BasicCodex extends LlmAdapter {
           yield { type: "text-delta", index: 0, text: params.delta };
         }
         if (method === "turn/completed" && params.turn.id === turn.id) {
-          if (params.turn.status !== "completed") throw new Error(params.turn.error?.message ?? `Codex turn ${params.turn.status}`);
+          if (params.turn.status !== "completed") throw new Error("Codex turn did not complete.");
           if (!text) throw new Error("Codex returned no text.");
           yield { type: "block-end", index: 0, block: { type: "text", text } };
           yield { type: "finish", reason: { kind: "stop" } };
@@ -63,6 +77,15 @@ class BasicCodex extends LlmAdapter {
         }
       }
       throw new Error("Codex App Server closed before the turn completed.");
+    } catch (error) {
+      if (signal.aborted) throw new Error("Codex request cancelled or timed out.");
+      const message = String(error?.message ?? "");
+      const category = /unauthori[sz]ed|authentication|not logged in|401/i.test(message) ? "authentication"
+        : /quota|rate.limit|429/i.test(message) ? "quota or rate limit"
+        : /permission|denied|EACCES|EPERM/i.test(message) ? "permission denied"
+        : /timeout|timed out/i.test(message) ? "timeout"
+        : /exited|closed|stopped/i.test(message) ? "server exited" : "request failed";
+      throw new Error(`Codex App Server: ${category}.`);
     } finally {
       signal.removeEventListener("abort", stop);
       await events.return();
