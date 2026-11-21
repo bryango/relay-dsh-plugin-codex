@@ -1,5 +1,11 @@
 - insert:
-    - id: relay-session-import-for-codex
-      name: 'relay-dsh-plugin-session-import'
+    - id: preset-relay-codex
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: relay-codex
+        name: Codex
+        description: Run and resume a Codex thread in DSH.
+        order: 2
+        plugins: []
     - id: relay-codex-host
       name: 'relay-dsh-plugin-codex'

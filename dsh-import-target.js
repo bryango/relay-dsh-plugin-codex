@@ -282,7 +282,7 @@ export class DshCodexImportTarget {
   async loadPersistedIds() {
     if (this.persistedIds === null) {
       this.persistedIds = new Set(
-        (await this.ctx.sessionPersistence.list()).map(header => SessionId(header.id)),
+        (await this.ctx.sessionPersistence.list()).map(snapshot => SessionId((snapshot.header ?? snapshot).id)),
       );
     }
     return this.persistedIds;

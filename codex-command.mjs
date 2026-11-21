@@ -94,7 +94,7 @@ function resolveAuto({
         argsPrefix: [],
         source: "local",
         mode: "auto",
-        fallback: bundledLaunch({ platform, arch, execPath, resolvePackage }),
+        fallback: optionalBundledLaunch({ platform, arch, execPath, resolvePackage }),
       });
     } catch (error) {
       failures.push({ path, code: error.code ?? "CODEX_EXECUTABLE_INVALID" });
@@ -148,7 +148,15 @@ function defaultCandidatePaths({ env, platform, homeDirectory }) {
     if (!nonBlank(entry)) continue;
     candidates.push(join(entry, platform === "win32" ? "codex.exe" : "codex"));
   }
+  if (platform !== "win32") candidates.push(join(homeDirectory, "bin", "codex"), join(homeDirectory, ".local", "bin", "codex"));
   return candidates;
+}
+
+function optionalBundledLaunch(options) {
+  try { return bundledLaunch(options); } catch (error) {
+    if (error.code === "CODEX_RUNTIME_MISSING" || error.code === "CODEX_PLATFORM_UNSUPPORTED") return undefined;
+    throw error;
+  }
 }
 
 function bundledLaunch({ platform, arch, execPath, resolvePackage }) {

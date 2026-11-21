@@ -23,7 +23,6 @@ export function createDshCodexPlugin(ctx, config = {}) {
     async activate({ capabilities, defer }) {
       const runtime = capabilities.require("relay.execution.codex.v1");
       const terminal = capabilities.optional("relay.terminal.codex.v1");
-      const resolveAgent = createAgentLookup(ctx);
       const linkStore = new CodexLinkStore(resolveLinkPath(config.codexLinkPath));
       const adapter = new CodexDshAdapter({
         runtime, ready: runtime.whenReady(),
@@ -87,16 +86,6 @@ function registerOptionalTerminalProvider(ctx, defer, terminal) {
     }), "relay Codex terminal provider");
   });
   defer(() => fiber.dispose());
-}
-
-function createAgentLookup(ctx) {
-  const lookup = ctx.typert.lookups.get("agent");
-  if (!lookup) throw new Error("Codex requires DSH's configured shared Agent lookup");
-  return async (sessionId) => {
-    const agent = await lookup.resolve(sessionId);
-    if (!agent) throw new Error(`session ${sessionId} was not found`);
-    return agent;
-  };
 }
 
 function resolveLinkPath(value) {
