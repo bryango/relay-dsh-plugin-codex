@@ -1,0 +1,13 @@
+{
+  "name": "relay-dsh-plugin-codex-basic",
+  "version": "0.2.5-rc.1",
+  "description": "Basic Codex text conversations for DeepSeek Harness using the local Codex CLI.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "main": "./host-plugin.js",
+  "exports": { ".": "./host-plugin.js", "./package.json": "./package.json" },
+  "engines": { "dsh": "0.2.2-rc.5" },
+  "files": ["host-plugin.js", "cordis.patch.yml"],
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+}

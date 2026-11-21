@@ -1,0 +1,11 @@
+- insert:
+    - id: relay-codex-basic
+      name: relay-dsh-plugin-codex-basic
+    - id: preset-relay-codex
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: relay-codex
+        name: Codex
+        description: Text conversations with the local Codex App Server.
+        order: 2
+        plugins: []
